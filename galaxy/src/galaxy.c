@@ -1,7 +1,7 @@
 /*
- * lavanet.c
- *
- *      Author: Robert 'Bobby' Zenz
+ * galaxy.c
+ * 		by Andrew Samaha
+ *		based heavily on lavanet.c by Robert 'Bobby' Zenz
  */
 
 #include <math.h>
@@ -18,6 +18,14 @@
 #define TRUE 1
 #define BLACK 0x000000
 #define WHITE 0xFFFFFF
+#define GRAVITY 0.001
+#define FRICTION 0
+#define FRICTION_STATIC 1
+#define FRICTION_AIR 0
+#define RESTITUTION 0.5
+#define POINT_MASS 0.001
+#define DEBUG 0
+#define STARTING_VELOCITY_COEFF .0001
 
 struct vector {
 	float x;
@@ -32,6 +40,13 @@ struct line {
 	int value;
 };
 
+struct body {
+	struct vector position;
+	struct vector velocity;
+	struct vector force;
+	float mass;
+};
+
 int targetRed = 0;
 int targetGreen = 255;
 int targetBlue = 255;
@@ -39,6 +54,8 @@ int targetBlue = 255;
 // Global, sorry.
 int debug = FALSE;
 int pointCount = 200;
+int bodyCount = 200;
+
 float minimumDistance = 100;
 int targetFps = 60;
 float topChange = 0.1f;
@@ -46,6 +63,16 @@ float topSpeed = 0.5f;
 
 float get_random() {
 	return ((float) rand() / RAND_MAX - 0.5f) * 2;
+}
+float randPositiveFloat(){
+	return ((float) rand() / RAND_MAX);
+}
+
+long getCurrentTime() {
+	struct timeval currentTime;
+	gettimeofday(&currentTime, NULL);
+	long currentTimeLong = currentTime.tv_sec * 1000000 + currentTime.tv_usec;
+	return currentTimeLong;
 }
 
 ulong make_color(u_char red, u_char green, u_char blue) {
@@ -119,6 +146,87 @@ int sort_lines(const void *a, const void *b) {
 	}
 
 	return 1;
+}
+// int gather_lines(struct vector *points, struct line **lines) {
+void createBodies(XWindowAttributes wa, struct body **bodies) {
+	for (int i = 0; i < bodyCount; i++) {
+		//*lines  = realloc(*lines , counter * sizeof(struct line));
+		*bodies = realloc(*bodies, (i+1) * sizeof(struct body));
+		struct body *newbody = &(*bodies)[i];
+		newbody->position.x = randPositiveFloat() * wa.width;
+		newbody->position.y = randPositiveFloat() * wa.height;
+		newbody->velocity.x = (randPositiveFloat() - .5) * STARTING_VELOCITY_COEFF;
+		newbody->velocity.y = (randPositiveFloat() - .5) * STARTING_VELOCITY_COEFF;
+		newbody->force.x = 0;
+		newbody->force.y = 0;
+		newbody->mass = POINT_MASS;
+		if (DEBUG) {
+			printf("creating %d: POS %f,  %f    VEL %f,  %f\n", i, newbody->position.x, newbody->position.y, newbody->velocity.x, newbody->velocity.y);
+		}
+	}
+}
+
+void calcForces(struct body *bodies, long timeDelta) {
+	if (DEBUG) printf("timeDelta %ld\n", timeDelta);
+	if (timeDelta > 1000000) return;
+	for (int i = 0; i < bodyCount; i++) {
+		if ( DEBUG && i == 1 ) {
+			printf("calcForces   %d:  startPos  %f,  %f\n", i, bodies[i].position.x, bodies[i].position.y);
+		}
+		for (int j = 0; j < bodyCount; j++) {
+			if (i == j) continue;
+			
+			float Dx = bodies[j].position.x - bodies[i].position.x;
+			float Dy = bodies[j].position.y - bodies[i].position.y;
+			float force = timeDelta * GRAVITY * bodies[j].mass * bodies[i].mass / sqrt(Dx * Dx + Dy * Dy);
+			float angle = atan2f(Dy, Dx);
+			bodies[i].force.x += force * cosf(angle);
+			bodies[i].force.y += force * sinf(angle);
+		}
+	}
+}
+void applyForces(struct body *bodies) {
+	for (int i = 0; i < bodyCount; i++) {
+		bodies[i].velocity.x += bodies[i].force.x;
+		bodies[i].velocity.y += bodies[i].force.y;
+		if ( DEBUG && i == 1 ) {
+			printf("applyForces  %d:  force %f,  %f\n", i, bodies[i].force.x, bodies[i].force.y);
+		}
+	}	
+}
+void moveVelocity(struct body *bodies, long timeDelta) {
+	for (int i = 0; i < bodyCount; i++) {
+		if ( DEBUG && i == 1 ) {
+			printf("moveVelocity %d:  startPos  %f,  %f\n", i, bodies[i].position.x, bodies[i].position.y);
+		}
+		bodies[i].position.x += bodies[i].velocity.x * timeDelta;
+		bodies[i].position.y += bodies[i].velocity.y * timeDelta;
+		if ( DEBUG && i == 1 ) {
+			printf("moveVelocity %d:  stopEnd   %f,  %f\n", i, bodies[i].position.x, bodies[i].position.y);
+		}
+	}
+}
+
+void drawBodies(Display *dpy, GC g, Pixmap pixmap, struct body *bodies) {
+	for (int i = 0; i < bodyCount; i++) {
+		XSetForeground(
+			dpy, 
+			g, 
+			make_color(
+				255, 
+				255, 
+				255));
+		XDrawPoint(
+			dpy, pixmap, g,
+			bodies[i].position.x,
+			bodies[i].position.y);
+			if ( DEBUG && i == 1 ) {
+				printf("drawBodies    %d:  %f,  %f\n", i, bodies[i].position.x, bodies[i].position.y);
+			}
+		bodies[i].force.x = 0;
+		bodies[i].force.y = 0;
+	}	
+
 }
 
 void move_points(struct vector *points, struct vector *velocities,
@@ -225,9 +333,14 @@ int main(int argc, char *argv[])
 	gettimeofday(&tv, NULL);
 	srand(tv.tv_sec);
 
+	struct body *bodies = malloc(sizeof(struct body));
+	//struct body bodies[bodyCount];
 	struct vector points[pointCount];
 	struct vector velocities[pointCount];
 	int counter = 0;
+
+	long lastDrawTime = getCurrentTime();
+
 	for (counter = 0; counter < pointCount; counter++) {
 		points[counter].x = rand() % wa.width;
 		points[counter].y = rand() % wa.height;
@@ -236,9 +349,13 @@ int main(int argc, char *argv[])
 		velocities[counter].y = get_random() * topSpeed;
 	}
 
+
 	// this is to terminate nicely:
 	Atom wmDeleteMessage = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(dpy, root, &wmDeleteMessage, 1);
+
+/// int lineCount = gather_lines(points, &lines);
+	createBodies(wa, &bodies);
 
 	while ( TRUE )
 	{
@@ -287,13 +404,25 @@ int main(int argc, char *argv[])
 		struct line *lines = malloc(sizeof(struct line));
 		int lineCount = gather_lines(points, &lines);
 		qsort(lines, lineCount, sizeof(struct line), sort_lines);
-		draw_lines(lines, lineCount, dpy, g, double_buffer);
+		
+		long currentTime = getCurrentTime();
+		long delta = currentTime - lastDrawTime;
+		calcForces(bodies, delta);
+		applyForces(bodies);
+		moveVelocity(bodies, delta);
+		drawBodies(dpy, g, double_buffer, bodies);
+		// draw_lines(lines, lineCount, dpy, g, double_buffer);
+		
+		lastDrawTime = getCurrentTime();
+
 		free(lines);
 
 		XCopyArea(dpy, double_buffer, root, g, 0, 0, wa.width, wa.height, 0, 0);
 		XFlush(dpy);
 
 		usleep(sleepFor);
+		
+		
 	}
 
 	// cleanup

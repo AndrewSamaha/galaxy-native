@@ -6,10 +6,10 @@ CC=gcc
 CFLAGS = -Wall -O2
 CLIBS = -lX11 -lm
 
-all : lavanet.c vroot.h
-		$(CC) $(CFLAGS) -o lavanet lavanet.c $(CLIBS)
+all : galaxy.c vroot.h
+		$(CC) $(CFLAGS) -o galaxy galaxy.c $(CLIBS)
 
 .PHONY: clean
 
 clean :
-		-rm lava
+		-rm galaxy
