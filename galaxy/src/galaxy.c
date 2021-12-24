@@ -54,7 +54,7 @@ int targetBlue = 255;
 // Global, sorry.
 int debug = FALSE;
 int pointCount = 200;
-int bodyCount = 200;
+int bodyCount = 120;
 
 float minimumDistance = 100;
 int targetFps = 60;
@@ -311,8 +311,8 @@ int main(int argc, char *argv[])
 	} else {
 		// Let's create our own window.
 		int screen = DefaultScreen(dpy);
-		root = XCreateSimpleWindow(dpy, RootWindow(dpy, screen), 24, 48, 860,
-				640, 1, BlackPixel(dpy, screen), WhitePixel(dpy, screen));
+		root = XCreateSimpleWindow(dpy, RootWindow(dpy, screen), 0, 0, 1920,
+				1080, 1, BlackPixel(dpy, screen), WhitePixel(dpy, screen));
 		XMapWindow(dpy, root);
 	}
 
